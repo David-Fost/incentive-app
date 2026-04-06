@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from datetime import timedelta
 from decimal import Decimal
 from typing import List, Optional
-
+from .calculations import calculate_nir_score_raw, normalize_by_working_days, apply_additional_cap, calculate_final_total
 from .database import get_db
 from .models import User, ResearchTopic, MonthlyReport
 from .schemas import (
@@ -148,6 +148,7 @@ def list_reports(
         query = query.filter(MonthlyReport.status == status_filter)
     return query.all()
 
+
 @app.patch("/reports/{report_id}/finalize", response_model=ReportResponse)
 def finalize_report(
     report_id: int,
@@ -163,13 +164,35 @@ def finalize_report(
         user = db.query(User).filter(User.id == report.user_id).first()
         if user.department != current_user.department:
             raise HTTPException(403, "Нет доступа к этому отчёту")
+
+    # 🔹 РЕАЛЬНЫЙ РАСЧЁТ ПО ФОРМУЛАМ ИЗ ПЛАНА 🔹
     
-    # 🔹 ЗАГЛУШКА РАСЧЁТА (позже заменим на реальные формулы)
-    report.nir_score = Decimal("2.5")
-    report.additional_score = Decimal("1.8")
-    report.total_score = report.nir_score + report.additional_score
+    # 1. Блок 1: Сырой балл за НИР (берём публикации из отчёта)
+    # TODO: Позже подключим запросы к БД для RID, НМД и реального кол-ва соавторов
+    nir_raw = calculate_nir_score_raw(
+        publications_count=report.publications_count or 0,
+        rid_count=0,        # Пока заглушка
+        nmd_count=0,        # Пока заглушка
+        coauthors_count=3   # Пока m=1 (≤3 соавтора)
+    )
+    
+    # 2. Нормировка на рабочие дни
+    # TODO: Позже заменим на запрос к таблице attendance (табель)
+    worked_days = 22        # Заглушка: полная занятость
+    month_total_days = 22   # Заглушка: норма месяца
+    nir_normalized = normalize_by_working_days(nir_raw, worked_days, month_total_days)
+    
+    # 3. Блоки 2+3: Дополнительные баллы
+    # TODO: Позже подключим service_activities + ref_center_activities
+    additional_scores = [Decimal("0")]  # Пока заглушка
+    additional_total = apply_additional_cap(additional_scores)
+    
+    # 4. Итоговый балл (cap основной части + доп.)
+    report.nir_score = min(nir_normalized, Decimal("5"))  # Cap основной части
+    report.additional_score = additional_total
+    report.total_score = calculate_final_total(nir_normalized, additional_total)
+    
     report.status = "finalized"
-    
     db.commit()
     db.refresh(report)
     return report

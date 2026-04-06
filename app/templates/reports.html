@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+
+{% block title %}Отчёты — НИИ{% endblock %}
+{% block page_title %}Отчёты по надбавкам{% endblock %}
+{% block page_subtitle %}Расчёт и управление стимулирующими выплатами{% endblock %}
+
+{% block content %}
+
+<!-- ── TOP ACTION BAR ────────────────────────────────── -->
+<div class="flex items-center justify-between mb-6">
+  <div class="flex items-center gap-3">
+    <div class="relative">
+      <i class="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+      <input
+        type="text"
+        id="search-reports"
+        placeholder="Поиск по завлабу..."
+        class="form-input pl-9 max-w-64"
+        oninput="searchReports(this.value)"
+      />
+    </div>
+    <select class="form-input max-w-36" id="filter-status" onchange="filterByStatus(this.value)">
+      <option value="">Все статусы</option>
+      <option value="draft">Черновик</option>
+      <option value="approved">Утверждён</option>
+      <option value="sent">Отправлен</option>
+    </select>
+  </div>
+  <button
+    onclick="openModal('modal-new-report')"
+    class="btn btn-primary"
+  >
+    <i class="ph ph-plus-circle"></i>
+    Создать отчёт
+  </button>
+</div>
+
+<!-- ── REPORTS TABLE ─────────────────────────────────── -->
+<div class="card overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+    <h2 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+      <i class="ph ph-chart-bar text-brand-500"></i>
+      Список отчётов
+    </h2>
+    <span class="badge badge-blue ml-auto">{{ reports | length }} отчётов</span>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="data-table" id="reports-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Завлаб</th>
+          <th>Период</th>
+          <th>Фонд (руб.)</th>
+          <th>Статус</th>
+          <th>Записей</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody id="reports-table-body">
+        {% for report in reports %}
+        <tr id="report-row-{{ report.id }}"
+            data-status="{{ report.status | default('draft') }}"
+            data-search="{{ report.head_of_lab | lower }}">
+          <td>
+            <span class="font-mono text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">#{{ report.id }}</span>
+          </td>
+          <td class="font-medium text-gray-900">{{ report.head_of_lab }}</td>
+          <td class="tabular-nums text-gray-600">
+            {% set months_short = {
+              1:'янв',2:'фев',3:'мар',4:'апр',5:'май',6:'июн',
+              7:'июл',8:'авг',9:'сен',10:'окт',11:'ноя',12:'дек'
+            } %}
+            {{ months_short[report.month] | default(report.month) }} {{ report.year }}
+          </td>
+          <td class="tabular-nums">
+            {% if report.total_fund is defined and report.total_fund is not none %}
+              <span class="font-semibold text-gray-800">{{ "{:,.0f}".format(report.total_fund).replace(',',' ') }}</span>
+            {% else %}
+              <span class="text-gray-300">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% set status = report.status | default('draft') %}
+            {% if status == 'approved' %}
+              <span class="badge badge-green"><i class="ph ph-check-circle mr-1"></i>Утверждён</span>
+            {% elif status == 'sent' %}
+              <span class="badge badge-blue"><i class="ph ph-paper-plane-right mr-1"></i>Отправлен</span>
+            {% else %}
+              <span class="badge badge-yellow"><i class="ph ph-pencil mr-1"></i>Черновик</span>
+            {% endif %}
+          </td>
+          <td class="tabular-nums text-gray-500">
+            {{ report.entries | length if report.entries is defined else '—' }}
+          </td>
+          <td>
+            <div class="flex items-center gap-1.5">
+              <a
+                href="/reports/{{ report.id }}"
+                class="btn btn-secondary btn-sm"
+                title="Просмотр"
+              >
+                <i class="ph ph-eye"></i>
+              </a>
+              <button
+                onclick="openModal('modal-edit-{{ report.id }}')"
+                class="btn btn-secondary btn-sm"
+                title="Редактировать"
+              >
+                <i class="ph ph-pencil-simple"></i>
+              </button>
+              <button
+                class="btn btn-danger btn-sm"
+                hx-delete="/reports/{{ report.id }}"
+                hx-target="#report-row-{{ report.id }}"
+                hx-swap="outerHTML"
+                hx-confirm="Удалить отчёт #{{ report.id }}? Это действие необратимо."
+                title="Удалить"
+              >
+                <i class="ph ph-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr id="reports-empty">
+          <td colspan="7">
+            <div class="flex flex-col items-center py-14 text-center">
+              <div class="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
+                <i class="ph ph-chart-bar text-gray-400" style="font-size:30px"></i>
+              </div>
+              <p class="text-sm font-medium text-gray-600">Отчётов пока нет</p>
+              <p class="text-xs text-gray-400 mt-1 mb-4">Создайте первый отчёт, нажав кнопку выше</p>
+              <button onclick="openModal('modal-new-report')" class="btn btn-primary btn-sm">
+                <i class="ph ph-plus-circle"></i> Создать отчёт
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: CREATE NEW REPORT
+═══════════════════════════════════════════════════════ -->
+<div id="modal-new-report" class="modal-backdrop hidden" onclick="handleBackdropClick(event,'modal-new-report')">
+  <div class="modal-box max-w-3xl mx-4" onclick="event.stopPropagation()">
+
+    <!-- Modal header -->
+    <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+      <div>
+        <h3 class="text-base font-semibold text-gray-900">Создать новый отчёт</h3>
+        <p class="text-xs text-gray-400 mt-0.5">Заполните данные и добавьте записи по сотрудникам</p>
+      </div>
+      <button onclick="closeModal('modal-new-report')" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700">
+        <i class="ph ph-x text-lg"></i>
+      </button>
+    </div>
+
+    <form
+      method="POST"
+      action="/reports"
+      hx-post="/reports"
+      hx-target="#reports-table-body"
+      hx-swap="afterbegin"
+      hx-indicator="#report-spinner"
+      onsubmit="onReportSubmit(this)"
+      class="px-6 py-5 space-y-5"
+    >
+      <!-- Basic info -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="sm:col-span-1">
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">Год <span class="text-red-400">*</span></label>
+          <input type="number" name="year" class="form-input" placeholder="2025"
+                 min="2000" max="2099" value="{{ current_year | default('') }}" required />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">Месяц <span class="text-red-400">*</span></label>
+          <select name="month" class="form-input" required>
+            <option value="">— выбрать —</option>
+            {% set months = [
+              (1,'Январь'),(2,'Февраль'),(3,'Март'),(4,'Апрель'),
+              (5,'Май'),(6,'Июнь'),(7,'Июль'),(8,'Август'),
+              (9,'Сентябрь'),(10,'Октябрь'),(11,'Ноябрь'),(12,'Декабрь')
+            ] %}
+            {% for num, name in months %}
+            <option value="{{ num }}" {% if current_month == num %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1.5">Фонд надбавок (₽) <span class="text-red-400">*</span></label>
+          <input type="number" name="total_fund" class="form-input" placeholder="150000"
+                 min="0" step="0.01" required />
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1.5">Заведующий лабораторией <span class="text-red-400">*</span></label>
+        <input type="text" name="head_of_lab" class="form-input" placeholder="Иванов Иван Иванович" required />
+      </div>
+
+      <!-- Divider -->
+      <div class="border-t border-gray-100 pt-4">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <i class="ph ph-users text-brand-500"></i>
+            Записи по сотрудникам
+          </h4>
+          <button type="button" onclick="addEntryRow()" class="btn btn-secondary btn-sm">
+            <i class="ph ph-plus"></i> Добавить строку
+          </button>
+        </div>
+
+        <!-- Entry rows container -->
+        <div class="space-y-2.5" id="entry-rows">
+
+          <!-- Header labels (desktop only) -->
+          <div class="hidden sm:grid grid-cols-12 gap-2 px-1">
+            <span class="col-span-4 text-xs text-gray-400 font-medium">Сотрудник</span>
+            <span class="col-span-4 text-xs text-gray-400 font-medium">Тема НИР</span>
+            <span class="col-span-2 text-xs text-gray-400 font-medium">Баллы</span>
+            <span class="col-span-2 text-xs text-gray-400 font-medium">Коэф.</span>
+          </div>
+
+          <!-- Template row (shown by default) -->
+          <div class="entry-row grid grid-cols-12 gap-2 items-start bg-gray-50 rounded-xl p-3 border border-gray-100"
+               id="entry-row-0">
+            <div class="col-span-12 sm:col-span-4">
+              <select name="entries[0][employee_id]" class="form-input text-sm" required>
+                <option value="">— сотрудник —</option>
+                {% for emp in employees | default([]) %}
+                <option value="{{ emp.id }}">{{ emp.full_name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-span-12 sm:col-span-4">
+              <select name="entries[0][topic_id]" class="form-input text-sm">
+                <option value="">— тема НИР —</option>
+                {% for topic in topics | default([]) %}
+                <option value="{{ topic.id }}">{{ topic.code }} — {{ topic.title | truncate(30) }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-span-5 sm:col-span-2">
+              <input type="number" name="entries[0][score]" class="form-input text-sm" placeholder="Баллы" min="0" step="0.1" />
+            </div>
+            <div class="col-span-5 sm:col-span-2">
+              <input type="number" name="entries[0][coefficient]" class="form-input text-sm" placeholder="Коэф." min="0" max="1" step="0.01" />
+            </div>
+            <div class="col-span-2 sm:col-span-0 flex justify-end sm:hidden">
+              <button type="button" onclick="removeEntryRow(this)" class="btn btn-danger btn-sm" title="Удалить строку">
+                <i class="ph ph-minus-circle"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-xs text-gray-400 mt-2 flex items-center gap-1">
+          <i class="ph ph-info"></i>
+          Баллы и коэффициент будут пересчитаны автоматически при наличии данных в табеле
+        </p>
+      </div>
+
+      <!-- Modal footer -->
+      <div class="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+        <button type="button" onclick="closeModal('modal-new-report')" class="btn btn-secondary">
+          Отмена
+        </button>
+        <button type="submit" class="btn btn-primary">
+          <span id="report-spinner" class="htmx-indicator">
+            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+            </svg>
+          </span>
+          <i class="ph ph-check-circle"></i>
+          Создать отчёт
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+/* ── Entry row counter ──────────────────────────── */
+let entryCount = 1;
+
+// Collect available options to inject into new rows
+const employeeOptions = `{% for emp in employees | default([]) %}<option value="{{ emp.id }}">{{ emp.full_name }}</option>{% endfor %}`;
+const topicOptions    = `{% for t in topics | default([]) %}<option value="{{ t.id }}">{{ t.code }} — {{ t.title | truncate(30) }}</option>{% endfor %}`;
+
+function addEntryRow() {
+  const idx = entryCount++;
+  const row = document.createElement('div');
+  row.className = 'entry-row grid grid-cols-12 gap-2 items-start bg-gray-50 rounded-xl p-3 border border-gray-100';
+  row.id = `entry-row-${idx}`;
+  row.innerHTML = `
+    <div class="col-span-12 sm:col-span-4">
+      <select name="entries[${idx}][employee_id]" class="form-input text-sm" required>
+        <option value="">— сотрудник —</option>${employeeOptions}
+      </select>
+    </div>
+    <div class="col-span-12 sm:col-span-4">
+      <select name="entries[${idx}][topic_id]" class="form-input text-sm">
+        <option value="">— тема НИР —</option>${topicOptions}
+      </select>
+    </div>
+    <div class="col-span-5 sm:col-span-2">
+      <input type="number" name="entries[${idx}][score]" class="form-input text-sm" placeholder="Баллы" min="0" step="0.1" />
+    </div>
+    <div class="col-span-5 sm:col-span-2">
+      <input type="number" name="entries[${idx}][coefficient]" class="form-input text-sm" placeholder="Коэф." min="0" max="1" step="0.01" />
+    </div>
+    <div class="col-span-2 flex justify-end sm:justify-center items-center">
+      <button type="button" onclick="removeEntryRow(this)" class="btn btn-danger btn-sm" title="Удалить строку">
+        <i class="ph ph-minus-circle"></i>
+      </button>
+    </div>
+  `;
+  document.getElementById('entry-rows').appendChild(row);
+  row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function removeEntryRow(btn) {
+  const row = btn.closest('.entry-row');
+  if (document.querySelectorAll('.entry-row').length > 1) {
+    row.remove();
+  } else {
+    toast('info', 'Минимум одна строка', 'Должна быть хотя бы одна запись по сотруднику');
+  }
+}
+
+function onReportSubmit(form) {
+  document.getElementById('reports-empty')?.remove();
+  closeModal('modal-new-report');
+  setTimeout(() => {
+    form.reset();
+    // Reset entry rows to just one
+    const container = document.getElementById('entry-rows');
+    const rows = container.querySelectorAll('.entry-row');
+    rows.forEach((r, i) => { if (i > 0) r.remove(); });
+    entryCount = 1;
+    toast('success', 'Отчёт создан', 'Новый отчёт добавлен в список');
+  }, 100);
+}
+
+/* ── Search & filter ──────────────────────────────── */
+function searchReports(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('#reports-table tbody tr[data-search]').forEach(row => {
+    const match = row.dataset.search.includes(q);
+    row.style.display = match ? '' : 'none';
+  });
+}
+
+function filterByStatus(status) {
+  document.querySelectorAll('#reports-table tbody tr[data-status]').forEach(row => {
+    row.style.display = (!status || row.dataset.status === status) ? '' : 'none';
+  });
+}
+
+/* ── Backdrop click ──────────────────────────────── */
+function handleBackdropClick(e, id) {
+  if (e.target === e.currentTarget) closeModal(id);
+}
+</script>
+{% endblock %}

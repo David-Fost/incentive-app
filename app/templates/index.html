@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Главная — НИИ{% endblock %}
+{% block page_title %}Добро пожаловать 👋{% endblock %}
+{% block page_subtitle %}Панель управления стимулирующими надбавками{% endblock %}
+
+{% block content %}
+
+<!-- ── STAT CARDS ──────────────────────────────────────── -->
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
+
+  <!-- Card 1 -->
+  <div class="card p-5 flex items-start gap-4 group hover:shadow-card-md transition-shadow duration-200">
+    <div class="w-11 h-11 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-100 transition-colors">
+      <i class="ph ph-users text-brand-600" style="font-size:22px"></i>
+    </div>
+    <div>
+      <p class="text-xs text-gray-400 font-medium uppercase tracking-wide">Сотрудников</p>
+      <p class="text-2xl font-semibold text-gray-900 mt-0.5">{{ employees_count | default('—') }}</p>
+      <p class="text-xs text-green-600 mt-1 flex items-center gap-1"><i class="ph ph-trend-up"></i> Активные</p>
+    </div>
+  </div>
+
+  <!-- Card 2 -->
+  <div class="card p-5 flex items-start gap-4 group hover:shadow-card-md transition-shadow duration-200">
+    <div class="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-100 transition-colors">
+      <i class="ph ph-book-bookmark text-emerald-600" style="font-size:22px"></i>
+    </div>
+    <div>
+      <p class="text-xs text-gray-400 font-medium uppercase tracking-wide">Тем НИР</p>
+      <p class="text-2xl font-semibold text-gray-900 mt-0.5">{{ topics_count | default('—') }}</p>
+      <p class="text-xs text-gray-400 mt-1 flex items-center gap-1"><i class="ph ph-calendar-blank"></i> Текущий период</p>
+    </div>
+  </div>
+
+  <!-- Card 3 -->
+  <div class="card p-5 flex items-start gap-4 group hover:shadow-card-md transition-shadow duration-200">
+    <div class="w-11 h-11 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0 group-hover:bg-amber-100 transition-colors">
+      <i class="ph ph-chart-bar text-amber-600" style="font-size:22px"></i>
+    </div>
+    <div>
+      <p class="text-xs text-gray-400 font-medium uppercase tracking-wide">Отчётов</p>
+      <p class="text-2xl font-semibold text-gray-900 mt-0.5">{{ reports_count | default('—') }}</p>
+      <p class="text-xs text-amber-600 mt-1 flex items-center gap-1"><i class="ph ph-clock"></i> За все время</p>
+    </div>
+  </div>
+
+  <!-- Card 4 -->
+  <div class="card p-5 flex items-start gap-4 group hover:shadow-card-md transition-shadow duration-200">
+    <div class="w-11 h-11 rounded-xl bg-rose-50 flex items-center justify-center flex-shrink-0 group-hover:bg-rose-100 transition-colors">
+      <i class="ph ph-clipboard-text text-rose-600" style="font-size:22px"></i>
+    </div>
+    <div>
+      <p class="text-xs text-gray-400 font-medium uppercase tracking-wide">Записей в табеле</p>
+      <p class="text-2xl font-semibold text-gray-900 mt-0.5">{{ attendance_count | default('—') }}</p>
+      <p class="text-xs text-gray-400 mt-1 flex items-center gap-1"><i class="ph ph-arrows-clockwise"></i> Обновлено сегодня</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── BOTTOM GRID ─────────────────────────────────────── -->
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
+
+  <!-- Quick actions -->
+  <div class="card p-6">
+    <h2 class="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
+      <i class="ph ph-lightning text-brand-500"></i> Быстрые действия
+    </h2>
+    <div class="space-y-2.5">
+      <a href="/topics" class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/50 transition-all group cursor-pointer">
+        <div class="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center group-hover:bg-indigo-100">
+          <i class="ph ph-plus-circle text-brand-600" style="font-size:17px"></i>
+        </div>
+        <div>
+          <p class="text-sm font-medium text-gray-800">Добавить тему НИР</p>
+          <p class="text-xs text-gray-400">Создать новую исследовательскую тему</p>
+        </div>
+        <i class="ph ph-arrow-right text-gray-300 ml-auto group-hover:text-brand-400"></i>
+      </a>
+      <a href="/attendance" class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:border-emerald-200 hover:bg-emerald-50/50 transition-all group cursor-pointer">
+        <div class="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center group-hover:bg-emerald-100">
+          <i class="ph ph-user-check text-emerald-600" style="font-size:17px"></i>
+        </div>
+        <div>
+          <p class="text-sm font-medium text-gray-800">Внести в табель</p>
+          <p class="text-xs text-gray-400">Зафиксировать рабочие дни</p>
+        </div>
+        <i class="ph ph-arrow-right text-gray-300 ml-auto group-hover:text-emerald-400"></i>
+      </a>
+      <a href="/reports" class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:border-amber-200 hover:bg-amber-50/50 transition-all group cursor-pointer">
+        <div class="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center group-hover:bg-amber-100">
+          <i class="ph ph-file-text text-amber-600" style="font-size:17px"></i>
+        </div>
+        <div>
+          <p class="text-sm font-medium text-gray-800">Создать отчёт</p>
+          <p class="text-xs text-gray-400">Рассчитать стимулирующие надбавки</p>
+        </div>
+        <i class="ph ph-arrow-right text-gray-300 ml-auto group-hover:text-amber-400"></i>
+      </a>
+    </div>
+  </div>
+
+  <!-- Recent reports -->
+  <div class="card p-6 xl:col-span-2">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+        <i class="ph ph-clock-clockwise text-brand-500"></i> Последние отчёты
+      </h2>
+      <a href="/reports" class="text-xs text-brand-600 hover:underline font-medium">Все отчёты →</a>
+    </div>
+
+    {% if recent_reports %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Завлаб</th>
+          <th>Период</th>
+          <th>Статус</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in recent_reports %}
+        <tr>
+          <td class="font-mono text-xs text-gray-400">{{ r.id }}</td>
+          <td class="font-medium">{{ r.head_of_lab }}</td>
+          <td>{{ r.month }}/{{ r.year }}</td>
+          <td>
+            {% if r.status == 'approved' %}
+              <span class="badge badge-green">Утверждён</span>
+            {% elif r.status == 'draft' %}
+              <span class="badge badge-yellow">Черновик</span>
+            {% else %}
+              <span class="badge badge-gray">{{ r.status }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <!-- Empty state -->
+    <div class="flex flex-col items-center justify-center py-12 text-center">
+      <div class="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
+        <i class="ph ph-chart-bar text-gray-400" style="font-size:26px"></i>
+      </div>
+      <p class="text-sm font-medium text-gray-600">Отчётов пока нет</p>
+      <p class="text-xs text-gray-400 mt-1">Создайте первый отчёт в разделе «Отчёты»</p>
+      <a href="/reports" class="btn btn-primary btn-sm mt-4">
+        <i class="ph ph-plus"></i> Создать отчёт
+      </a>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

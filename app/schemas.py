@@ -1,6 +1,6 @@
 # app/schemas.py
 from pydantic import BaseModel, ConfigDict
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from decimal import Decimal
 
@@ -38,8 +38,8 @@ class TopicResponse(TopicCreate):
     is_active: bool
     model_config = ConfigDict(from_attributes=True)
 
-# =========== REPORTS ===========
-# (Внимание: эти схемы соответствуют старой структуре. Мы обновим их позже, когда перепишем эндпоинты отчётов)
+# =========== REPORTS (LEGACY / СТАРАЯ СТРУКТУРА) ===========
+# ⚠️ Оставлены для совместимости. Новые отчёты используют MonthlyReportCreate/Response ниже.
 class ReportCreate(BaseModel):
     user_id: int
     topic_id: int
@@ -71,11 +71,7 @@ class ReportResponse(BaseModel):
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
-# =============================================================================
-# 🔹 НОВЫЕ СХЕМЫ (Шаг 33)
-# =============================================================================
-
-# =========== КАЛЕНДАРЬ РАБОЧИХ ДНЕЙ ===========
+# =========== КАЛЕНДАРЬ & ТАБЕЛЬ (ШАГ 33) ===========
 class WorkingDaysCreate(BaseModel):
     year: int
     month: int
@@ -86,7 +82,6 @@ class WorkingDaysResponse(WorkingDaysCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
-# =========== ТАБЕЛЬ (ATTENDANCE) ===========
 class AttendanceCreate(BaseModel):
     employee_id: int
     year: int
@@ -98,7 +93,6 @@ class AttendanceResponse(AttendanceCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
-# =========== СЛУЖЕБНЫЕ КРИТЕРИИ (SERVICE ACTIVITIES) ===========
 class ServiceActivityCreate(BaseModel):
     employee_id: int
     year: int
@@ -111,4 +105,39 @@ class ServiceActivityCreate(BaseModel):
 class ServiceActivityResponse(ServiceActivityCreate):
     id: int
     created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+# =============================================================================
+# 🔹 НОВЫЕ СХЕМЫ ОТЧЁТОВ (ШАГ 35)
+# =============================================================================
+class ReportEntryCreate(BaseModel):
+    topic_id: int
+    employee_id: int
+    work_title: Optional[str] = None
+    doi_or_link: Optional[str] = None
+    publications_count: int = 0
+    points_earned: float = 0.0
+    notes: Optional[str] = None
+
+class ReportEntryResponse(ReportEntryCreate):
+    id: int
+    report_id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MonthlyReportCreate(BaseModel):
+    lab_head_id: int
+    department: str
+    year: int
+    month: int
+    entries: List[ReportEntryCreate] = []  # Список строк отчёта
+
+class MonthlyReportResponse(BaseModel):
+    id: int
+    lab_head_id: int
+    department: str
+    year: int
+    month: int
+    status: str
+    entries: List[ReportEntryResponse] = []
     model_config = ConfigDict(from_attributes=True)

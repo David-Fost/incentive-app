@@ -1,0 +1,17 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: incentive_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: devuser
+      POSTGRES_PASSWORD: devpassword123
+      POSTGRES_DB: incentive_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

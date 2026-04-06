@@ -5,11 +5,13 @@ import enum
 
 from .database import Base
 
+
 class ReportStatus(str, enum.Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
     APPROVED = "approved"
     REJECTED = "rejected"
+
 
 class User(Base):
     __tablename__ = "users"
@@ -22,6 +24,11 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # 🔹 Обратные связи для новых моделей (Шаг 32)
+    attendance_records = relationship("Attendance", back_populates="employee", cascade="all, delete-orphan")
+    service_activities = relationship("ServiceActivity", back_populates="employee", cascade="all, delete-orphan")
+
+
 class ResearchTopic(Base):
     __tablename__ = "research_topics"
     id = Column(Integer, primary_key=True, index=True)
@@ -31,6 +38,7 @@ class ResearchTopic(Base):
     period_month = Column(Integer, nullable=False)
     department = Column(String(100), nullable=False)
     is_active = Column(Boolean, default=True)
+
 
 class MonthlyReport(Base):
     """Заголовок ежемесячного отчёта лаборатории"""
@@ -47,7 +55,8 @@ class MonthlyReport(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     entries = relationship("ReportEntry", back_populates="report", cascade="all, delete-orphan")
-    __table_args__ = (UniqueConstraint('lab_head_id', 'year', 'month'),)
+    __table_args__ = (UniqueConstraint('lab_head_id', 'year', 'month', name='_lab_head_period_uc'),)
+
 
 class ReportEntry(Base):
     """Строка отчёта: конкретная работа сотрудника по теме"""
@@ -57,15 +66,16 @@ class ReportEntry(Base):
     topic_id = Column(Integer, ForeignKey("research_topics.id"), nullable=False)
     employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    work_title = Column(String(300))          # Название работы/статьи
-    doi_or_link = Column(String(300))         # DOI или ссылка
+    work_title = Column(String(300))
+    doi_or_link = Column(String(300))
     publications_count = Column(Integer, default=0)
-    points_earned = Column(DECIMAL(8, 4), default=0.0)  # Баллы за эту строку
-    notes = Column(String(500))               # Комментарий завлаба
+    points_earned = Column(DECIMAL(8, 4), default=0.0)
+    notes = Column(String(500))
 
     report = relationship("MonthlyReport", back_populates="entries")
     topic = relationship("ResearchTopic")
     employee = relationship("User")
+
 
 class EmployeeMonthlyScore(Base):
     """Агрегированные итоги за месяц (формируется автоматически при submission)"""
@@ -75,9 +85,55 @@ class EmployeeMonthlyScore(Base):
     year = Column(Integer, nullable=False)
     month = Column(Integer, nullable=False)
 
-    topic_points = Column(DECIMAL(8, 4), default=0.0)       # Σ баллов по темам
-    additional_points = Column(DECIMAL(8, 4), default=0.0)  # Доп. критерии
-    total_points = Column(DECIMAL(8, 4), default=0.0)       # ИТОГО
-    status = Column(String(20), default="calculated")       # calculated | approved
+    topic_points = Column(DECIMAL(8, 4), default=0.0)
+    additional_points = Column(DECIMAL(8, 4), default=0.0)
+    total_points = Column(DECIMAL(8, 4), default=0.0)
+    status = Column(String(20), default="calculated")
 
-    __table_args__ = (UniqueConstraint('employee_id', 'year', 'month'),)
+    __table_args__ = (UniqueConstraint('employee_id', 'year', 'month', name='_emp_score_period_uc'),)
+
+
+# =============================================================================
+# 🔹 НОВЫЕ МОДЕЛИ для реального расчёта (Шаг 32)
+# =============================================================================
+
+class WorkingDaysCalendar(Base):
+    """Производственный календарь: норма рабочих дней в месяце"""
+    __tablename__ = "working_days_calendar"
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    total_days = Column(Integer, nullable=False)
+
+    __table_args__ = (UniqueConstraint('year', 'month', name='_calendar_year_month_uc'),)
+
+
+class Attendance(Base):
+    """Табель: фактически отработанные дни сотрудника за месяц"""
+    __tablename__ = "attendance"
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    working_days = Column(Integer, nullable=False)
+
+    employee = relationship("User", back_populates="attendance_records")
+
+    __table_args__ = (UniqueConstraint('employee_id', 'year', 'month', name='_attendance_emp_period_uc'),)
+
+
+class ServiceActivity(Base):
+    """Блок 3: служебные критерии (диссертации, наставничество, гранты)"""
+    __tablename__ = "service_activities"
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+
+    criterion_name = Column(String(200), nullable=False)
+    criterion_weight = Column(DECIMAL(6, 4), nullable=False)
+    quantity = Column(DECIMAL(6, 2), default=1)
+    notes = Column(String(500))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    employee = relationship("User", back_populates="service_activities")

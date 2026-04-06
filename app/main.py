@@ -5,20 +5,25 @@ from sqlalchemy.orm import Session
 from datetime import timedelta
 from decimal import Decimal
 from typing import List, Optional
+
 from .calculations import calculate_nir_score_raw, normalize_by_working_days, apply_additional_cap, calculate_final_total
 from .database import get_db
-from .models import User, ResearchTopic, MonthlyReport
+# 🔹 ДОБАВЛЕНО: новые модели для Шаг 34
+from .models import User, ResearchTopic, MonthlyReport, Attendance, WorkingDaysCalendar
 from .schemas import (
     UserCreate, UserResponse, Token,
     TopicCreate, TopicResponse,
-    ReportCreate, ReportUpdate, ReportResponse
+    ReportCreate, ReportUpdate, ReportResponse,
+    # 🔹 ДОБАВЛЕНО: новые схемы для Шаг 34
+    AttendanceCreate, AttendanceResponse,
+    WorkingDaysCreate, WorkingDaysResponse
 )
 from .auth import (
     get_password_hash, verify_password, create_access_token, get_current_user,
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
 
-app = FastAPI(title="Система расчёта СН", version="0.2.0")
+app = FastAPI(title="Система расчёта СН", version="0.3.0")
 
 # ================= AUTH =================
 @app.post("/token", response_model=Token)
@@ -97,120 +102,74 @@ def list_topics(
     return query.all()
 
 # ================= REPORTS =================
+# ⚠️ ВРЕМЕННО ЗАКОММЕНТИРОВАНО ДО ШАГА 35
+# Модель MonthlyReport изменилась. Старые поля (user_id, topic_id, period_year...) 
+# теперь находятся в ReportEntry. Эти маршруты вызовут ошибку импорта, пока мы их не перепишем.
+"""
 @app.post("/reports/", response_model=ReportResponse, status_code=201)
-def create_report(
-    report: ReportCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    if current_user.role != "admin":
-        topic = db.query(ResearchTopic).filter(
-            ResearchTopic.id == report.topic_id,
-            ResearchTopic.department == current_user.department
-        ).first()
-        if not topic:
-            raise HTTPException(403, "Тема не найдена или не относится вашему подразделению")
-        user = db.query(User).filter(User.id == report.user_id).first()
-        if user and user.department != current_user.department:
-            raise HTTPException(403, "Нельзя создавать отчёт для сотрудника чужого отдела")
-
-    exists = db.query(MonthlyReport).filter(
-        MonthlyReport.user_id == report.user_id,
-        MonthlyReport.topic_id == report.topic_id,
-        MonthlyReport.period_year == report.period_year,
-        MonthlyReport.period_month == report.period_month
-    ).first()
-    if exists:
-        raise HTTPException(400, "Отчёт за этот период по данной теме уже существует")
-
-    db_report = MonthlyReport(**report.model_dump())
-    db.add(db_report)
-    db.commit()
-    db.refresh(db_report)
-    return db_report
+def create_report(...): ...
 
 @app.get("/reports/", response_model=List[ReportResponse])
-def list_reports(
-    year: Optional[int] = Query(None),
-    month: Optional[int] = Query(None),
-    status_filter: Optional[str] = Query(None, alias="status"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    query = db.query(MonthlyReport)
-    if current_user.role != "admin":
-        query = query.join(User, MonthlyReport.user_id == User.id).filter(User.department == current_user.department)
-    if year:
-        query = query.filter(MonthlyReport.period_year == year)
-    if month:
-        query = query.filter(MonthlyReport.period_month == month)
-    if status_filter:
-        query = query.filter(MonthlyReport.status == status_filter)
-    return query.all()
-
+def list_reports(...): ...
 
 @app.patch("/reports/{report_id}/finalize", response_model=ReportResponse)
-def finalize_report(
-    report_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    report = db.query(MonthlyReport).filter(MonthlyReport.id == report_id).first()
-    if not report:
-        raise HTTPException(404, "Отчёт не найден")
-    if report.status != "draft":
-        raise HTTPException(400, f"Отчёт уже в статусе {report.status}")
-    if current_user.role != "admin":
-        user = db.query(User).filter(User.id == report.user_id).first()
-        if user.department != current_user.department:
-            raise HTTPException(403, "Нет доступа к этому отчёту")
-
-    # 🔹 РЕАЛЬНЫЙ РАСЧЁТ ПО ФОРМУЛАМ ИЗ ПЛАНА 🔹
-    
-    # 1. Блок 1: Сырой балл за НИР (берём публикации из отчёта)
-    # TODO: Позже подключим запросы к БД для RID, НМД и реального кол-ва соавторов
-    nir_raw = calculate_nir_score_raw(
-        publications_count=report.publications_count or 0,
-        rid_count=0,        # Пока заглушка
-        nmd_count=0,        # Пока заглушка
-        coauthors_count=3   # Пока m=1 (≤3 соавтора)
-    )
-    
-    # 2. Нормировка на рабочие дни
-    # TODO: Позже заменим на запрос к таблице attendance (табель)
-    worked_days = 22        # Заглушка: полная занятость
-    month_total_days = 22   # Заглушка: норма месяца
-    nir_normalized = normalize_by_working_days(nir_raw, worked_days, month_total_days)
-    
-    # 3. Блоки 2+3: Дополнительные баллы
-    # TODO: Позже подключим service_activities + ref_center_activities
-    additional_scores = [Decimal("0")]  # Пока заглушка
-    additional_total = apply_additional_cap(additional_scores)
-    
-    # 4. Итоговый балл (cap основной части + доп.)
-    report.nir_score = min(nir_normalized, Decimal("5"))  # Cap основной части
-    report.additional_score = additional_total
-    report.total_score = calculate_final_total(nir_normalized, additional_total)
-    
-    report.status = "finalized"
-    db.commit()
-    db.refresh(report)
-    return report
+def finalize_report(...): ...
 
 @app.patch("/reports/{report_id}/approve", response_model=ReportResponse)
-def approve_report(
-    report_id: int,
+def approve_report(...): ...
+"""
+
+# ================= ТАБЕЛЬ & КАЛЕНДАРЬ (ШАГ 34) =================
+@app.post("/attendance/", response_model=AttendanceResponse, status_code=201)
+def set_attendance(
+    data: AttendanceCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role != "admin":
-        raise HTTPException(403, "Только администратор может утверждать отчёты")
-    report = db.query(MonthlyReport).filter(MonthlyReport.id == report_id).first()
-    if not report:
-        raise HTTPException(404, "Отчёт не найден")
-    if report.status != "finalized":
-        raise HTTPException(400, "Можно утвердить только отчёт в статусе 'finalized'")
-    report.status = "approved"
+    """Создать или обновить табель сотрудника за месяц (upsert)"""
+    existing = db.query(Attendance).filter(
+        Attendance.employee_id == data.employee_id,
+        Attendance.year == data.year,
+        Attendance.month == data.month
+    ).first()
+    
+    if existing:
+        for k, v in data.model_dump().items():
+            setattr(existing, k, v)
+        db.commit()
+        db.refresh(existing)
+        return existing
+        
+    record = Attendance(**data.model_dump())
+    db.add(record)
     db.commit()
-    db.refresh(report)
-    return report
+    db.refresh(record)
+    return record
+
+
+@app.post("/calendar/", response_model=WorkingDaysResponse, status_code=201)
+def set_working_days(
+    data: WorkingDaysCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Установить норму рабочих дней в месяце (только admin)"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Только администратор может управлять календарём")
+        
+    existing = db.query(WorkingDaysCalendar).filter(
+        WorkingDaysCalendar.year == data.year,
+        WorkingDaysCalendar.month == data.month
+    ).first()
+    
+    if existing:
+        existing.total_days = data.total_days
+        db.commit()
+        db.refresh(existing)
+        return existing
+        
+    record = WorkingDaysCalendar(**data.model_dump())
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record

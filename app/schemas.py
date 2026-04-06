@@ -39,6 +39,7 @@ class TopicResponse(TopicCreate):
     model_config = ConfigDict(from_attributes=True)
 
 # =========== REPORTS ===========
+# (Внимание: эти схемы соответствуют старой структуре. Мы обновим их позже, когда перепишем эндпоинты отчётов)
 class ReportCreate(BaseModel):
     user_id: int
     topic_id: int
@@ -68,4 +69,46 @@ class ReportResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+# =============================================================================
+# 🔹 НОВЫЕ СХЕМЫ (Шаг 33)
+# =============================================================================
+
+# =========== КАЛЕНДАРЬ РАБОЧИХ ДНЕЙ ===========
+class WorkingDaysCreate(BaseModel):
+    year: int
+    month: int
+    total_days: int
+
+class WorkingDaysResponse(WorkingDaysCreate):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =========== ТАБЕЛЬ (ATTENDANCE) ===========
+class AttendanceCreate(BaseModel):
+    employee_id: int
+    year: int
+    month: int
+    working_days: int
+
+class AttendanceResponse(AttendanceCreate):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =========== СЛУЖЕБНЫЕ КРИТЕРИИ (SERVICE ACTIVITIES) ===========
+class ServiceActivityCreate(BaseModel):
+    employee_id: int
+    year: int
+    month: int
+    criterion_name: str
+    criterion_weight: float
+    quantity: float = 1.0
+    notes: Optional[str] = None
+
+class ServiceActivityResponse(ServiceActivityCreate):
+    id: int
+    created_at: datetime
     model_config = ConfigDict(from_attributes=True)

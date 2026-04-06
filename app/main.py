@@ -1,10 +1,14 @@
 # app/main.py
-from fastapi import FastAPI, Depends, HTTPException, status, Query
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, Form, Response
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session, joinedload
-from datetime import timedelta
+from datetime import timedelta, datetime
 from decimal import Decimal
 from typing import List, Optional
+from types import SimpleNamespace
 
 from .calculations import calculate_nir_score_raw, normalize_by_working_days, apply_additional_cap, calculate_final_total
 from .database import get_db
@@ -21,9 +25,14 @@ from .auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
 
-app = FastAPI(title="Система расчёта СН", version="0.4.0")
+# ================= ИНИЦИАЛИЗАЦИЯ =================
+app = FastAPI(title="Система расчёта СН", version="0.5.0")
+templates = Jinja2Templates(directory="app/templates")
+# Раскомментируйте, когда добавите папку app/static/
+# app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# ================= AUTH =================
+
+# ================= AUTH & API (БЕЗ ИЗМЕНЕНИЙ) =================
 @app.post("/token", response_model=Token)
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -68,7 +77,6 @@ def create_user(
 def read_me(current_user: User = Depends(get_current_user)):
     return current_user
 
-# ================= TOPICS =================
 @app.post("/topics/", response_model=TopicResponse, status_code=201)
 def create_topic(
     topic: TopicCreate,
@@ -99,7 +107,6 @@ def list_topics(
         query = query.filter(ResearchTopic.period_month == month)
     return query.all()
 
-# ================= REPORTS (НОВАЯ СТРУКТУРА) =================
 @app.post("/reports/", response_model=MonthlyReportResponse, status_code=201)
 def create_report(
     report_data: MonthlyReportCreate,
@@ -108,8 +115,6 @@ def create_report(
 ):
     if current_user.role != "admin" and report_data.department != current_user.department:
         raise HTTPException(403, "Доступ только к отчётам своего подразделения")
-
-    # Проверка на дубликат заголовка
     exists = db.query(MonthlyReport).filter(
         MonthlyReport.lab_head_id == report_data.lab_head_id,
         MonthlyReport.year == report_data.year,
@@ -117,8 +122,6 @@ def create_report(
     ).first()
     if exists:
         raise HTTPException(400, "Отчёт за этот период у данного завлаба уже существует")
-
-    # Создаём заголовок
     new_report = MonthlyReport(
         lab_head_id=report_data.lab_head_id,
         department=report_data.department,
@@ -127,20 +130,13 @@ def create_report(
         status="draft"
     )
     db.add(new_report)
-    db.flush()  # Получаем ID заголовка до коммита
-
-    # Добавляем строки отчёта
+    db.flush()
     for entry_data in report_data.entries:
-        entry = ReportEntry(
-            report_id=new_report.id,
-            **entry_data.model_dump()
-        )
+        entry = ReportEntry(report_id=new_report.id, **entry_data.model_dump())
         db.add(entry)
-
     db.commit()
     db.refresh(new_report)
     return new_report
-
 
 @app.get("/reports/", response_model=List[MonthlyReportResponse])
 def list_reports(
@@ -158,7 +154,6 @@ def list_reports(
         query = query.filter(MonthlyReport.month == month)
     return query.all()
 
-
 @app.patch("/reports/{report_id}/finalize", response_model=MonthlyReportResponse)
 def finalize_report(
     report_id: int,
@@ -173,20 +168,17 @@ def finalize_report(
     if current_user.role != "admin" and report.department != current_user.department:
         raise HTTPException(403, "Нет доступа к этому отчёту")
 
-    # 🔹 1. Получаем реальные данные из БД вместо заглушек
     attendance = db.query(Attendance).filter(
         Attendance.employee_id == report.lab_head_id,
         Attendance.year == report.year,
         Attendance.month == report.month
     ).first()
-    worked_days = attendance.working_days if attendance else 22  # fallback
-
+    worked_days = attendance.working_days if attendance else 22
     calendar = db.query(WorkingDaysCalendar).filter(
         WorkingDaysCalendar.year == report.year,
         WorkingDaysCalendar.month == report.month
     ).first()
-    month_total_days = calendar.total_days if calendar else 22  # fallback
-
+    month_total_days = calendar.total_days if calendar else 22
     service_entries = db.query(ServiceActivity).filter(
         ServiceActivity.employee_id == report.lab_head_id,
         ServiceActivity.year == report.year,
@@ -195,23 +187,18 @@ def finalize_report(
     service_total = sum(Decimal(str(e.quantity)) * Decimal(str(e.criterion_weight)) for e in service_entries)
     additional_total = apply_additional_cap([service_total])
 
-    # 🔹 2. Считаем баллы для каждой строки отчёта
     for entry in report.entries:
         nir_raw = calculate_nir_score_raw(
             publications_count=entry.publications_count or 0,
-            rid_count=0,        # TODO: подключить запрос к БД RID
-            nmd_count=0,        # TODO: подключить запрос к БД НМД
-            coauthors_count=3   # TODO: рассчитать динамически
+            rid_count=0, nmd_count=0, coauthors_count=3
         )
         nir_normalized = normalize_by_working_days(nir_raw, worked_days, month_total_days)
-        # Cap основной части = 5.0
         entry.points_earned = float(min(nir_normalized, Decimal("5.0")))
 
     report.status = "finalized"
     db.commit()
     db.refresh(report)
     return report
-
 
 @app.patch("/reports/{report_id}/approve", response_model=MonthlyReportResponse)
 def approve_report(
@@ -231,8 +218,6 @@ def approve_report(
     db.refresh(report)
     return report
 
-
-# ================= ТАБЕЛЬ & КАЛЕНДАРЬ =================
 @app.post("/attendance/", response_model=AttendanceResponse, status_code=201)
 def set_attendance(
     data: AttendanceCreate,
@@ -256,7 +241,6 @@ def set_attendance(
     db.refresh(record)
     return record
 
-
 @app.post("/calendar/", response_model=WorkingDaysResponse, status_code=201)
 def set_working_days(
     data: WorkingDaysCreate,
@@ -279,3 +263,146 @@ def set_working_days(
     db.commit()
     db.refresh(record)
     return record
+
+
+# ================= WEB UI (НОВЫЕ ШАБЛОНЫ) =================
+@app.get("/", response_class=HTMLResponse)
+def web_index(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "employees_count": db.query(User).count(),
+        "topics_count": db.query(ResearchTopic).count(),
+        "reports_count": db.query(MonthlyReport).count(),
+        "attendance_count": db.query(Attendance).count(),
+        "recent_reports": db.query(MonthlyReport).order_by(MonthlyReport.id.desc()).limit(5).all(),
+    })
+
+@app.get("/topics", response_class=HTMLResponse)
+def web_topics(request: Request, db: Session = Depends(get_db)):
+    topics = db.query(ResearchTopic).order_by(ResearchTopic.id.desc()).all()
+    return templates.TemplateResponse("topics.html", {
+        "request": request,
+        "topics": topics,
+        "current_year": datetime.now().year,
+        "current_month": datetime.now().month,
+    })
+
+@app.post("/topics", response_class=HTMLResponse)
+async def web_topics_post(
+    request: Request,
+    title: str = Form(...),
+    code: str = Form(None),
+    year: int = Form(...),
+    month: int = Form(...),
+    department: str = Form(...),
+    db: Session = Depends(get_db),
+    response: Response = None
+):
+    db.add(ResearchTopic(title=title, code=code, period_year=year, period_month=month, department=department))
+    db.commit()
+    response.headers["X-Toast-Success"] = "Тема успешно добавлена"
+    return RedirectResponse(url="/topics", status_code=303)
+
+@app.get("/calendar", response_class=HTMLResponse)
+def web_calendar(request: Request, db: Session = Depends(get_db)):
+    norms = db.query(WorkingDaysCalendar).order_by(WorkingDaysCalendar.year.desc(), WorkingDaysCalendar.month.desc()).all()
+    return templates.TemplateResponse("calendar.html", {
+        "request": request,
+        "norms": norms,
+        "current_year": datetime.now().year,
+        "current_month": datetime.now().month,
+    })
+
+@app.post("/calendar", response_class=HTMLResponse)
+async def web_calendar_post(
+    request: Request,
+    year: int = Form(...),
+    month: int = Form(...),
+    work_days_norm: int = Form(...),
+    db: Session = Depends(get_db),
+    response: Response = None
+):
+    existing = db.query(WorkingDaysCalendar).filter_by(year=year, month=month).first()
+    if existing:
+        existing.total_days = work_days_norm
+    else:
+        db.add(WorkingDaysCalendar(year=year, month=month, total_days=work_days_norm))
+    db.commit()
+    response.headers["X-Toast-Success"] = "Норма сохранена"
+    return RedirectResponse(url="/calendar", status_code=303)
+
+@app.get("/attendance", response_class=HTMLResponse)
+def web_attendance(request: Request, db: Session = Depends(get_db)):
+    records_db = db.query(Attendance).order_by(Attendance.year.desc(), Attendance.month.desc()).all()
+    employees = db.query(User).order_by(User.full_name).all()
+    
+    # Готовим данные под шаблон (расчёт коэффициента на лету)
+    records = []
+    for rec in records_db:
+        norm = db.query(WorkingDaysCalendar).filter_by(year=rec.year, month=rec.month).first()
+        coeff = round(rec.working_days / norm.total_days, 2) if norm else None
+        records.append(SimpleNamespace(
+            employee=SimpleNamespace(full_name=rec.employee.full_name if rec.employee else "—"),
+            year=rec.year,
+            month=rec.month,
+            days_worked=rec.working_days,
+            coefficient=coeff
+        ))
+        
+    years = sorted(set(r.year for r in records), reverse=True)
+    return templates.TemplateResponse("attendance.html", {
+        "request": request,
+        "records": records,
+        "employees": employees,
+        "available_years": years,
+        "current_year": datetime.now().year,
+        "current_month": datetime.now().month,
+    })
+
+@app.post("/attendance", response_class=HTMLResponse)
+async def web_attendance_post(
+    request: Request,
+    employee_id: int = Form(...),
+    year: int = Form(...),
+    month: int = Form(...),
+    days_worked: float = Form(...),
+    db: Session = Depends(get_db),
+    response: Response = None
+):
+    existing = db.query(Attendance).filter_by(employee_id=employee_id, year=year, month=month).first()
+    if existing:
+        existing.working_days = int(days_worked)
+    else:
+        db.add(Attendance(employee_id=employee_id, year=year, month=month, working_days=int(days_worked)))
+    db.commit()
+    response.headers["X-Toast-Success"] = "Запись в табель добавлена"
+    return RedirectResponse(url="/attendance", status_code=303)
+
+@app.get("/reports", response_class=HTMLResponse)
+def web_reports(request: Request, db: Session = Depends(get_db)):
+    reports_db = db.query(MonthlyReport).options(joinedload(MonthlyReport.entries)).order_by(MonthlyReport.id.desc()).all()
+    employees = db.query(User).order_by(User.full_name).all()
+    topics = db.query(ResearchTopic).all()
+    
+    # Адаптация под шаблон
+    reports = []
+    for r in reports_db:
+        head = db.query(User).filter_by(id=r.lab_head_id).first()
+        reports.append(SimpleNamespace(
+            id=r.id,
+            head_of_lab=head.full_name if head else "Не назначен",
+            month=r.month,
+            year=r.year,
+            total_fund=None, # Заглушка, можно рассчитать позже
+            status=r.status,
+            entries=r.entries
+        ))
+        
+    return templates.TemplateResponse("reports.html", {
+        "request": request,
+        "reports": reports,
+        "employees": employees,
+        "topics": topics,
+        "current_year": datetime.now().year,
+        "current_month": datetime.now().month,
+    })

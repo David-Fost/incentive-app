@@ -1,9 +1,16 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, DECIMAL, UniqueConstraint, Enum
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, ForeignKey, DECIMAL, UniqueConstraint, Enum, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
 
 from .database import Base
+
+# 🔹 ТАБЛИЦА СВЯЗИ MANY-TO-MANY (обязательно вне классов!)
+topic_executors = Table(
+    "topic_executors", Base.metadata,
+    Column("topic_id", Integer, ForeignKey("research_topics.id", ondelete="CASCADE")),
+    Column("user_id",  Integer, ForeignKey("users.id", ondelete="CASCADE"))
+)
 
 
 class ReportStatus(str, enum.Enum):
@@ -24,9 +31,10 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # 🔹 Обратные связи для новых моделей (Шаг 32)
+    # 🔹 Обратные связи
     attendance_records = relationship("Attendance", back_populates="employee", cascade="all, delete-orphan")
     service_activities = relationship("ServiceActivity", back_populates="employee", cascade="all, delete-orphan")
+    assigned_topics = relationship("ResearchTopic", secondary=topic_executors, back_populates="executors")  # 🔹 ДОБАВЛЕНО
 
 
 class ResearchTopic(Base):
@@ -38,6 +46,15 @@ class ResearchTopic(Base):
     period_month = Column(Integer, nullable=False)
     department = Column(String(100), nullable=False)
     is_active = Column(Boolean, default=True)
+    
+    # 🔹 НОВЫЕ ПОЛЯ
+    head_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    responsible_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    date_start = Column(Date, nullable=True)   # 🔹 ЗАМЕНЕНО String(10) → Date
+    date_end   = Column(Date, nullable=True)   # 🔹 ЗАМЕНЕНО String(10) → Date
+    
+    # 🔹 СВЯЗЬ MANY-TO-MANY (таблица вынесена на уровень модуля)
+    executors = relationship("User", secondary=topic_executors, back_populates="assigned_topics")
 
 
 class MonthlyReport(Base):
@@ -78,7 +95,7 @@ class ReportEntry(Base):
 
 
 class EmployeeMonthlyScore(Base):
-    """Агрегированные итоги за месяц (формируется автоматически при submission)"""
+    """Агрегированные итоги за месяц"""
     __tablename__ = "employee_monthly_scores"
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -98,42 +115,34 @@ class EmployeeMonthlyScore(Base):
 # =============================================================================
 
 class WorkingDaysCalendar(Base):
-    """Производственный календарь: норма рабочих дней в месяце"""
     __tablename__ = "working_days_calendar"
     id = Column(Integer, primary_key=True, index=True)
     year = Column(Integer, nullable=False)
     month = Column(Integer, nullable=False)
     total_days = Column(Integer, nullable=False)
-
     __table_args__ = (UniqueConstraint('year', 'month', name='_calendar_year_month_uc'),)
 
 
 class Attendance(Base):
-    """Табель: фактически отработанные дни сотрудника за месяц"""
     __tablename__ = "attendance"
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     year = Column(Integer, nullable=False)
     month = Column(Integer, nullable=False)
     working_days = Column(Integer, nullable=False)
-
     employee = relationship("User", back_populates="attendance_records")
-
     __table_args__ = (UniqueConstraint('employee_id', 'year', 'month', name='_attendance_emp_period_uc'),)
 
 
 class ServiceActivity(Base):
-    """Блок 3: служебные критерии (диссертации, наставничество, гранты)"""
     __tablename__ = "service_activities"
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     year = Column(Integer, nullable=False)
     month = Column(Integer, nullable=False)
-
     criterion_name = Column(String(200), nullable=False)
     criterion_weight = Column(DECIMAL(6, 4), nullable=False)
     quantity = Column(DECIMAL(6, 2), default=1)
     notes = Column(String(500))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
     employee = relationship("User", back_populates="service_activities")

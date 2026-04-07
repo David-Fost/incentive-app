@@ -14,93 +14,110 @@
         <i class="ph ph-plus-circle text-brand-500"></i>
         Добавить тему
       </h2>
-      <form
-        method="POST"
-        action="/topics"
-        hx-post="/topics"
-        hx-target="#topics-table-body"
-        hx-swap="afterbegin"
-        hx-indicator="#form-spinner"
-        class="space-y-4"
-        onsubmit="resetTopicForm(this)"
-      >
+      <!-- 🔹 ОБНОВЛЁННАЯ ФОРМА С НОВЫМИ ПОЛЯМИ -->
+<form
+  method="POST"
+  action="/topics"
+  hx-post="/topics"
+  hx-target="#topics-table-body"
+  hx-swap="afterbegin"
+  hx-indicator="#form-spinner"
+  class="space-y-4"
+  onsubmit="resetTopicForm(this)"
+>
 
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1.5">Название темы <span class="text-red-400">*</span></label>
-          <input
-            type="text"
-            name="title"
-            class="form-input"
-            placeholder="Напр.: Разработка алгоритмов ИИ"
-            required
-            minlength="3"
-          />
-        </div>
+  <!-- Название и Код -->
+  <div>
+    <label class="block text-xs font-medium text-gray-600 mb-1.5">Название темы <span class="text-red-400">*</span></label>
+    <input type="text" name="title" class="form-input" placeholder="Напр.: Разработка алгоритмов ИИ" required minlength="3" />
+  </div>
 
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1.5">Код темы <span class="text-red-400">*</span></label>
-          <input
-            type="text"
-            name="code"
-            class="form-input"
-            placeholder="Напр.: NIR-2025-01"
-            required
-          />
-        </div>
+  <div>
+    <label class="block text-xs font-medium text-gray-600 mb-1.5">Код темы <span class="text-red-400">*</span></label>
+    <input type="text" name="code" class="form-input" placeholder="Напр.: NIR-2025-01" required />
+  </div>
 
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1.5">Год <span class="text-red-400">*</span></label>
-            <input
-              type="number"
-              name="year"
-              class="form-input"
-              placeholder="2025"
-              min="2000"
-              max="2099"
-              value="{{ current_year | default('') }}"
-              required
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1.5">Месяц <span class="text-red-400">*</span></label>
-            <select name="month" class="form-input" required>
-              <option value="">— выбрать —</option>
-              {% set months = [
-                (1,'Январь'),(2,'Февраль'),(3,'Март'),(4,'Апрель'),
-                (5,'Май'),(6,'Июнь'),(7,'Июль'),(8,'Август'),
-                (9,'Сентябрь'),(10,'Октябрь'),(11,'Ноябрь'),(12,'Декабрь')
-              ] %}
-              {% for num, name in months %}
-              <option value="{{ num }}" {% if current_month == num %}selected{% endif %}>{{ name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-        </div>
+  <!-- 🔹 Руководитель и Ответственный -->
+  <div class="grid grid-cols-2 gap-3">
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1.5">Руководитель</label>
+      <select name="head_id" class="form-input">
+        <option value="">— не выбран —</option>
+        {% for u in users | default([]) %}
+        <option value="{{ u.id }}">{{ u.full_name or u.username }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1.5">Ответственный исполнитель</label>
+      <select name="responsible_id" class="form-input">
+        <option value="">— не выбран —</option>
+        {% for u in users | default([]) %}
+        <option value="{{ u.id }}">{{ u.full_name or u.username }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
 
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1.5">Отдел</label>
-          <input
-            type="text"
-            name="department"
-            class="form-input"
-            placeholder="Напр.: Лаборатория ИИ"
-          />
-        </div>
+  <!-- 🔹 Период дат (диапазон) -->
+  <div class="grid grid-cols-2 gap-3">
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1.5">Дата начала</label>
+      <input type="date" name="date_start" class="form-input" />
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1.5">Дата окончания</label>
+      <input type="date" name="date_end" class="form-input" />
+    </div>
+  </div>
 
-        <div class="pt-1">
-          <button type="submit" class="btn btn-primary w-full justify-center">
-            <span id="form-spinner" class="htmx-indicator">
-              <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-              </svg>
-            </span>
-            <i class="ph ph-plus-circle"></i>
-            Добавить тему
-          </button>
-        </div>
-      </form>
+  <!-- 🔹 Исполнители (множественный выбор) -->
+  <div>
+    <label class="block text-xs font-medium text-gray-600 mb-1.5">Исполнители</label>
+    <select name="executor_ids" multiple size="3" class="form-input" title="Зажмите Ctrl (Cmd на Mac) для выбора нескольких">
+      {% for u in users | default([]) %}
+      <option value="{{ u.id }}">{{ u.full_name or u.username }} — {{ u.department }}</option>
+      {% endfor %}
+    </select>
+    <p class="text-[10px] text-gray-400 mt-1">💡 Ctrl+Click для выбора нескольких сотрудников</p>
+  </div>
+
+  <!-- Год, Месяц, Отдел -->
+  <div class="grid grid-cols-3 gap-3">
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1.5">Год <span class="text-red-400">*</span></label>
+      <input type="number" name="year" class="form-input" placeholder="2025" min="2000" max="2099" value="{{ current_year | default('') }}" required />
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1.5">Месяц <span class="text-red-400">*</span></label>
+      <select name="month" class="form-input" required>
+        <option value="">—</option>
+        {% set months = [(1,'Янв'),(2,'Фев'),(3,'Мар'),(4,'Апр'),(5,'Май'),(6,'Июн'),(7,'Июл'),(8,'Авг'),(9,'Сен'),(10,'Окт'),(11,'Ноя'),(12,'Дек')] %}
+        {% for num, name in months %}
+        <option value="{{ num }}" {% if current_month == num %}selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1.5">Отдел</label>
+      <input type="text" name="department" class="form-input" placeholder="Отдел" />
+    </div>
+  </div>
+
+  <!-- Кнопка -->
+  <div class="pt-1">
+    <button type="submit" class="btn btn-primary w-full justify-center">
+      <span id="form-spinner" class="htmx-indicator">
+        <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+        </svg>
+      </span>
+      <i class="ph ph-plus-circle"></i> Добавить тему
+    </button>
+  </div>
+
+</form>
     </div>
   </div>
 

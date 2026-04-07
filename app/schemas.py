@@ -32,12 +32,18 @@ class TopicCreate(BaseModel):
     period_year: int
     period_month: int
     department: str
-
+    # 
+    head_id: Optional[int] = None
+    responsible_id: Optional[int] = None
+    date_start: Optional[str] = None   
+    date_end:   Optional[str] = None   
+    executor_ids: List[int] = []       
+    
 class TopicResponse(TopicCreate):
     id: int
     is_active: bool
     model_config = ConfigDict(from_attributes=True)
-
+    
 # =========== REPORTS (LEGACY / СТАРАЯ СТРУКТУРА) ===========
 # ⚠️ Оставлены для совместимости. Новые отчёты используют MonthlyReportCreate/Response ниже.
 class ReportCreate(BaseModel):

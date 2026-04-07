@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session, joinedload
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, date
 from decimal import Decimal
 from typing import List, Optional
 from types import SimpleNamespace
@@ -280,9 +280,11 @@ def web_index(request: Request, db: Session = Depends(get_db)):
 @app.get("/topics", response_class=HTMLResponse)
 def web_topics(request: Request, db: Session = Depends(get_db)):
     topics = db.query(ResearchTopic).order_by(ResearchTopic.id.desc()).all()
+    users = db.query(User).order_by(User.full_name).all()  # 🔹 Нужно для выпадающих списков
     return templates.TemplateResponse("topics.html", {
         "request": request,
         "topics": topics,
+        "users": users,  # 🔹 Передаём в шаблон
         "current_year": datetime.now().year,
         "current_month": datetime.now().month,
     })
@@ -291,14 +293,37 @@ def web_topics(request: Request, db: Session = Depends(get_db)):
 async def web_topics_post(
     request: Request,
     title: str = Form(...),
-    code: str = Form(None),
+    code: Optional[str] = Form(None),
+    head_id: Optional[int] = Form(None),
+    responsible_id: Optional[int] = Form(None),
+    date_start: Optional[date] = Form(None),
+    date_end: Optional[date] = Form(None),
     year: int = Form(...),
     month: int = Form(...),
     department: str = Form(...),
+    executor_ids: List[int] = Form(default_factory=list),  # 🔹 Для множественного выбора
     db: Session = Depends(get_db),
     response: Response = None
 ):
-    db.add(ResearchTopic(title=title, code=code, period_year=year, period_month=month, department=department))
+    # 1. Создаём объект темы
+    new_topic = ResearchTopic(
+        title=title, code=code,
+        period_year=year, period_month=month,
+        department=department,
+        head_id=head_id,
+        responsible_id=responsible_id,
+        date_start=date_start,
+        date_end=date_end
+    )
+    db.add(new_topic)
+    db.flush()  # Получаем new_topic.id до фиксации транзакции
+
+    # 2. Привязываем исполнителей (Many-to-Many)
+    if executor_ids:
+        executors = db.query(User).filter(User.id.in_(executor_ids)).all()
+        new_topic.executors = executors
+
+    # 3. Фиксируем всё одной транзакцией
     db.commit()
     response.headers["X-Toast-Success"] = "Тема успешно добавлена"
     return RedirectResponse(url="/topics", status_code=303)

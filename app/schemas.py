@@ -35,8 +35,8 @@ class TopicCreate(BaseModel):
     # 
     head_id: Optional[int] = None
     responsible_id: Optional[int] = None
-    date_start: Optional[str] = None   
-    date_end:   Optional[str] = None   
+    date_start: Optional[date] = None   
+    date_end:   Optional[date] = None   
     executor_ids: List[int] = []       
     
 class TopicResponse(TopicCreate):

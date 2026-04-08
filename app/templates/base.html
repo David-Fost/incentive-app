@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="csrf-token" content="{{ csrf_token | default('') }}">
   <title>{% block title %}НИИ — Стимулирующие надбавки{% endblock %}</title>
 
   <!-- Tailwind CSS CDN -->
@@ -159,73 +160,11 @@
   </style>
 </head>
 
-<body class="h-full bg-gray-50">
+<body class="h-full bg-gray-50" hx-headers='{"X-CSRFToken": "{{ csrf_token | default('') }}"}'>
 <div class="flex h-full min-h-screen">
 
   <!-- ── SIDEBAR ──────────────────────────────────────── -->
-  <aside class="w-60 flex-shrink-0 bg-white shadow-sidebar flex flex-col sticky top-0 h-screen overflow-y-auto">
-
-    <!-- Logo -->
-    <div class="px-5 py-5 border-b border-gray-100">
-      <div class="flex items-center gap-3">
-        <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-          <i class="ph ph-flask text-white" style="font-size:16px"></i>
-        </div>
-        <div>
-          <div class="text-sm font-semibold text-gray-900 leading-tight">НИИ Портал</div>
-          <div class="text-xs text-gray-400">Стимулирующие надбавки</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Navigation -->
-    <nav class="flex-1 px-3 py-4 space-y-1">
-
-      <div class="nav-group-label">Основное</div>
-
-      <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
-        <i class="ph ph-house-simple"></i>
-        Главная
-      </a>
-      <a href="/topics" class="nav-link {% if '/topics' in request.url.path %}active{% endif %}">
-        <i class="ph ph-book-open"></i>
-        Темы НИР
-      </a>
-
-      <div class="nav-group-label">Учёт</div>
-
-      <a href="/calendar" class="nav-link {% if '/calendar' in request.url.path %}active{% endif %}">
-        <i class="ph ph-calendar-dots"></i>
-        Календарь
-      </a>
-      <a href="/attendance" class="nav-link {% if '/attendance' in request.url.path %}active{% endif %}">
-        <i class="ph ph-clipboard-text"></i>
-        Табель
-      </a>
-
-      <div class="nav-group-label">Аналитика</div>
-
-      <a href="/reports" class="nav-link {% if '/reports' in request.url.path %}active{% endif %}">
-        <i class="ph ph-chart-bar"></i>
-        Отчёты
-      </a>
-
-    </nav>
-
-    <!-- Bottom user block -->
-    <div class="px-3 py-4 border-t border-gray-100">
-      <div class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-        <div class="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-content center flex-shrink-0">
-          <span class="text-xs font-semibold text-brand-700 w-full text-center">АД</span>
-        </div>
-        <div class="flex-1 min-w-0">
-          <div class="text-xs font-medium text-gray-800 truncate">Администратор</div>
-          <div class="text-xs text-gray-400 truncate">admin@nii.local</div>
-        </div>
-        <i class="ph ph-sign-out text-gray-400 text-base"></i>
-      </div>
-    </div>
-  </aside>
+  {% include 'partials/sidebar.html' with context %}
 
   <!-- ── MAIN ─────────────────────────────────────────── -->
   <main class="flex-1 flex flex-col min-w-0 overflow-x-hidden">
@@ -244,7 +183,7 @@
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
           </svg>
         </span>
-        <span class="text-xs text-gray-400" id="js-date"></span>
+        <span class="text-xs text-gray-400" id="js-date">{{ current_date | default('') }}</span>
       </div>
     </header>
 
@@ -261,9 +200,11 @@
 
 <!-- ── GLOBAL SCRIPTS ────────────────────────────────── -->
 <script>
-  // Date in header
+  // Date in header (fallback if not provided by server)
+  {% if not current_date %}
   const d = new Date();
   document.getElementById('js-date').textContent = d.toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  {% endif %}
 
   // Toast system
   window.toast = function(type, title, msg) {
@@ -288,24 +229,33 @@
 
   // HTMX after-request → show toast from response header
   document.body.addEventListener('htmx:afterRequest', function(evt) {
-    const hdrs = evt.detail.xhr.getAllResponseHeaders();
-    const status = evt.detail.xhr.status;
+    const xhr = evt.detail.xhr;
+    const status = xhr.status;
     if (status >= 200 && status < 300) {
-      const msg = evt.detail.xhr.getResponseHeader('X-Toast-Success');
+      const msg = xhr.getResponseHeader('X-Toast-Success');
       if (msg) toast('success', 'Успешно', msg);
     } else {
-      const msg = evt.detail.xhr.getResponseHeader('X-Toast-Error');
+      const msg = xhr.getResponseHeader('X-Toast-Error');
       if (msg) toast('error', 'Ошибка', msg || 'Что-то пошло не так');
     }
   });
 
+  // HTMX: CSRF token for non-GET requests
+  document.body.addEventListener('htmx:configRequest', function(evt) {
+    const token = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (token && evt.detail.verb !== 'get') {
+      evt.detail.headers['X-CSRFToken'] = token;
+    }
+  });
+
   // Modal helpers
-  window.openModal = id => document.getElementById(id).classList.remove('hidden');
-  window.closeModal = id => document.getElementById(id).classList.add('hidden');
-  // Close on backdrop click
+  window.openModal = id => document.getElementById(id)?.classList.remove('hidden');
+  window.closeModal = id => document.getElementById(id)?.classList.add('hidden');
+  
+  // Close modal on backdrop click (fixed selector)
   document.addEventListener('click', e => {
     if (e.target.classList.contains('modal-backdrop')) {
-      e.target.closest('[id]').classList.add('hidden');
+      e.target.classList.add('hidden');
     }
   });
 </script>

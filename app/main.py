@@ -9,6 +9,7 @@ from datetime import timedelta, datetime, date
 from decimal import Decimal
 from typing import List, Optional
 from types import SimpleNamespace
+import secrets  # ← Для генерации CSRF-токенов
 
 from .calculations import calculate_nir_score_raw, normalize_by_working_days, apply_additional_cap, calculate_final_total
 from .database import get_db
@@ -34,6 +35,31 @@ from .auth import (
 app = FastAPI(title="Система расчёта СН", version="0.6.1")
 templates = Jinja2Templates(directory="app/templates")
 # app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+# ================= КОНТЕКСТ ДЛЯ ШАБЛОНОВ =================
+def get_base_context(request: Request, db: Session = None) -> dict:
+    """
+    Базовый контекст для всех шаблонов.
+    Передаёт: current_user, csrf_token, current_date, active_page
+    """
+    # Получаем текущего пользователя (из зависимости или request.state)
+    current_user = getattr(request.state, "user", None)
+    
+    # Определяем активную страницу для подсветки навигации
+    path = request.url.path.strip('/').split('?')[0]
+    active_page = path if path else 'home'
+    
+    # Форматируем дату на русском
+    current_date = datetime.now().strftime("%A, %d %B %Y")
+    
+    return {
+        "request": request,
+        "current_user": current_user,
+        "csrf_token": secrets.token_urlsafe(32),
+        "current_date": current_date,
+        "active_page": active_page,
+    }
 
 
 # ================= AUTH & API =================
@@ -351,7 +377,7 @@ def get_employee_publications_html(
         query = query.filter(Publication.year == year)
     publications = query.all()
     return templates.TemplateResponse("partials/pub_list.html", {
-        "request": request,
+        **get_base_context(request, db),
         "publications": publications,
         "current_year": year or datetime.now().year,
         "current_month": datetime.now().month,
@@ -362,7 +388,7 @@ def get_employee_publications_html(
 @app.get("/", response_class=HTMLResponse)
 def web_index(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("index.html", {
-        "request": request,
+        **get_base_context(request, db),
         "employees_count": db.query(User).count(),
         "topics_count": db.query(ResearchTopic).count(),
         "reports_count": db.query(MonthlyReport).count(),
@@ -375,7 +401,7 @@ def web_topics(request: Request, db: Session = Depends(get_db)):
     topics = db.query(ResearchTopic).order_by(ResearchTopic.id.desc()).all()
     users = db.query(User).order_by(User.full_name).all()
     return templates.TemplateResponse("topics.html", {
-        "request": request,
+        **get_base_context(request, db),
         "topics": topics,
         "users": users,
         "current_year": datetime.now().year,
@@ -396,7 +422,8 @@ async def web_topics_post(
     department: str = Form(...),
     executor_ids: List[int] = Form(default_factory=list),
     db: Session = Depends(get_db),
-    response: Response = None
+    response: Response = None,
+    current_user: User = Depends(get_current_user)  # ← Защита формы
 ):
     new_topic = ResearchTopic(
         title=title, code=code,
@@ -420,7 +447,7 @@ async def web_topics_post(
 def web_calendar(request: Request, db: Session = Depends(get_db)):
     norms = db.query(WorkingDaysCalendar).order_by(WorkingDaysCalendar.year.desc(), WorkingDaysCalendar.month.desc()).all()
     return templates.TemplateResponse("calendar.html", {
-        "request": request,
+        **get_base_context(request, db),
         "norms": norms,
         "current_year": datetime.now().year,
         "current_month": datetime.now().month,
@@ -433,7 +460,8 @@ async def web_calendar_post(
     month: int = Form(...),
     work_days_norm: int = Form(...),
     db: Session = Depends(get_db),
-    response: Response = None
+    response: Response = None,
+    current_user: User = Depends(get_current_user)  # ← Защита формы
 ):
     existing = db.query(WorkingDaysCalendar).filter_by(year=year, month=month).first()
     if existing:
@@ -461,7 +489,7 @@ def web_attendance(request: Request, db: Session = Depends(get_db)):
         ))
     years = sorted(set(r.year for r in records), reverse=True)
     return templates.TemplateResponse("attendance.html", {
-        "request": request,
+        **get_base_context(request, db),
         "records": records,
         "employees": employees,
         "available_years": years,
@@ -477,7 +505,8 @@ async def web_attendance_post(
     month: int = Form(...),
     days_worked: float = Form(...),
     db: Session = Depends(get_db),
-    response: Response = None
+    response: Response = None,
+    current_user: User = Depends(get_current_user)  # ← Защита формы
 ):
     existing = db.query(Attendance).filter_by(employee_id=employee_id, year=year, month=month).first()
     if existing:
@@ -506,7 +535,7 @@ def web_reports(request: Request, db: Session = Depends(get_db)):
             entries=r.entries
         ))
     return templates.TemplateResponse("reports.html", {
-        "request": request,
+        **get_base_context(request, db),
         "reports": reports,
         "employees": employees,
         "topics": topics,
@@ -530,4 +559,4 @@ def delete_working_days(
     
     db.delete(norm)
     db.commit()
-    return Response(status_code=204) 
+    return Response(status_code=204)

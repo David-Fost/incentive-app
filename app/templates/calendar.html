@@ -140,13 +140,12 @@
               </td>
               <td>
                 <div class="flex items-center gap-2">
-                  <div class="h-1.5 rounded-full bg-gray-100 w-16 overflow-hidden">
-                    <div class="h-full bg-brand-400 rounded-full" style="width: {{ [(norm.total_days / 23 * 100), 100] | min }}%"></div>
-                  </div>
-                  <span class="tabular-nums font-semibold text-gray-800">{{ norm.total_days }}</span>
+                <div class="h-1.5 rounded-full bg-gray-100 w-16 overflow-hidden">
+                  <div class="h-full bg-brand-400 rounded-full cal-bar"
+                      data-pct="{{ [(norm.total_days / 23 * 100), 100] | min }}"></div>
                 </div>
-              </td>
-              <td class="text-gray-500 tabular-nums">{{ norm.total_days * 8 }}</td>
+                <span class="tabular-nums font-semibold text-gray-800">{{ norm.total_days }}</span>
+              </div>
               <td class="text-right">
                 <button
                   class="btn btn-danger btn-sm"
@@ -209,6 +208,11 @@
 
 {% block extra_scripts %}
 <script>
+// Проставляем ширину прогресс-баров через JS (избегаем Jinja2 в style="")
+document.querySelectorAll('.cal-bar').forEach(el => {
+  el.style.width = (el.dataset.pct || 0) + '%';
+});
+
 function onCalendarSubmit(form) {
   document.getElementById('calendar-empty')?.remove();
   setTimeout(() => { form.reset(); }, 150);

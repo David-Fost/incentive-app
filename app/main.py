@@ -513,3 +513,21 @@ def web_reports(request: Request, db: Session = Depends(get_db)):
         "current_year": datetime.now().year,
         "current_month": datetime.now().month,
     })
+
+@app.delete("/calendar/{norm_id}", status_code=204)
+def delete_working_days(
+    norm_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Удаление нормы рабочих дней (для HTMX)"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Только администратор")
+    
+    norm = db.query(WorkingDaysCalendar).filter(WorkingDaysCalendar.id == norm_id).first()
+    if not norm:
+        raise HTTPException(status_code=404, detail="Норма не найдена")
+    
+    db.delete(norm)
+    db.commit()
+    return Response(status_code=204) 

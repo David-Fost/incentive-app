@@ -326,7 +326,8 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
 });
 </script>
 
-<!-- 🔹 Partial-шаблон для одной публикации (рендерится на сервере) -->
+<!-- 🔹 Partial-шаблон для одной публикации (клиентский, не рендерится сервером) -->
+{% raw %}
 <template id="pub-item-template">
   <div class="p-2.5 bg-gray-50 rounded border border-gray-100 hover:border-brand-200 transition cursor-pointer"
        data-pub-id="{{ pub.id }}"
@@ -351,4 +352,5 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
     {% endif %}
   </div>
 </template>
+{% endraw %}
 {% endblock %}

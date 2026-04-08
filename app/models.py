@@ -5,13 +5,32 @@ import enum
 
 from .database import Base
 
-# 🔹 ТАБЛИЦА СВЯЗИ MANY-TO-MANY (обязательно вне классов!)
+# =============================================================================
+# 🔹 ТАБЛИЦЫ СВЯЗИ MANY-TO-MANY (обязательно вне классов!)
+# =============================================================================
+
 topic_executors = Table(
     "topic_executors", Base.metadata,
     Column("topic_id", Integer, ForeignKey("research_topics.id", ondelete="CASCADE")),
     Column("user_id",  Integer, ForeignKey("users.id", ondelete="CASCADE"))
 )
 
+publication_topics = Table(
+    "publication_topics", Base.metadata,
+    Column("publication_id", Integer, ForeignKey("publications.id", ondelete="CASCADE")),
+    Column("topic_id", Integer, ForeignKey("research_topics.id", ondelete="CASCADE"))
+)
+
+publication_authors = Table(
+    "publication_authors", Base.metadata,
+    Column("publication_id", Integer, ForeignKey("publications.id", ondelete="CASCADE")),
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"))
+)
+
+
+# =============================================================================
+# 🔹 ENUM И БАЗОВЫЕ КЛАССЫ
+# =============================================================================
 
 class ReportStatus(str, enum.Enum):
     DRAFT = "draft"
@@ -19,6 +38,10 @@ class ReportStatus(str, enum.Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
 
+
+# =============================================================================
+# 🔹 ПОЛЬЗОВАТЕЛИ
+# =============================================================================
 
 class User(Base):
     __tablename__ = "users"
@@ -34,8 +57,17 @@ class User(Base):
     # 🔹 Обратные связи
     attendance_records = relationship("Attendance", back_populates="employee", cascade="all, delete-orphan")
     service_activities = relationship("ServiceActivity", back_populates="employee", cascade="all, delete-orphan")
-    assigned_topics = relationship("ResearchTopic", secondary=topic_executors, back_populates="executors")  # 🔹 ДОБАВЛЕНО
+    
+    # Темы, где сотрудник — исполнитель
+    assigned_topics = relationship("ResearchTopic", secondary=topic_executors, back_populates="executors")
+    
+    # Публикации, где сотрудник — автор
+    publications = relationship("Publication", secondary=publication_authors, back_populates="authors_list")
 
+
+# =============================================================================
+# 🔹 ТЕМЫ НИР
+# =============================================================================
 
 class ResearchTopic(Base):
     __tablename__ = "research_topics"
@@ -47,15 +79,24 @@ class ResearchTopic(Base):
     department = Column(String(100), nullable=False)
     is_active = Column(Boolean, default=True)
     
-    # 🔹 НОВЫЕ ПОЛЯ
+    # 🔹 НОВЫЕ ПОЛЯ: руководитель, ответственный, период
     head_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     responsible_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    date_start = Column(Date, nullable=True)   # 🔹 ЗАМЕНЕНО String(10) → Date
-    date_end   = Column(Date, nullable=True)   # 🔹 ЗАМЕНЕНО String(10) → Date
+    date_start = Column(Date, nullable=True)
+    date_end = Column(Date, nullable=True)
     
-    # 🔹 СВЯЗЬ MANY-TO-MANY (таблица вынесена на уровень модуля)
+    # 🔹 СВЯЗИ
     executors = relationship("User", secondary=topic_executors, back_populates="assigned_topics")
+    head = relationship("User", foreign_keys=[head_id])
+    responsible = relationship("User", foreign_keys=[responsible_id])
+    
+    # Публикации, относящиеся к теме
+    publications = relationship("Publication", secondary=publication_topics, back_populates="topics")
 
+
+# =============================================================================
+# 🔹 ЕЖЕМЕСЯЧНЫЕ ОТЧЁТЫ
+# =============================================================================
 
 class MonthlyReport(Base):
     """Заголовок ежемесячного отчёта лаборатории"""
@@ -111,10 +152,11 @@ class EmployeeMonthlyScore(Base):
 
 
 # =============================================================================
-# 🔹 НОВЫЕ МОДЕЛИ для реального расчёта (Шаг 32)
+# 🔹 КАЛЕНДАРЬ И ТАБЕЛЬ (Шаг 32)
 # =============================================================================
 
 class WorkingDaysCalendar(Base):
+    """Производственный календарь: норма рабочих дней в месяце"""
     __tablename__ = "working_days_calendar"
     id = Column(Integer, primary_key=True, index=True)
     year = Column(Integer, nullable=False)
@@ -124,6 +166,7 @@ class WorkingDaysCalendar(Base):
 
 
 class Attendance(Base):
+    """Табель: фактически отработанные дни сотрудника за месяц"""
     __tablename__ = "attendance"
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -135,6 +178,7 @@ class Attendance(Base):
 
 
 class ServiceActivity(Base):
+    """Блок 3: служебные критерии (диссертации, наставничество, гранты)"""
     __tablename__ = "service_activities"
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -146,3 +190,54 @@ class ServiceActivity(Base):
     notes = Column(String(500))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     employee = relationship("User", back_populates="service_activities")
+
+
+# =============================================================================
+# 🔹 ПУБЛИКАЦИИ И ПЛАНИРОВАНИЕ ОПЛАТЫ (Шаг 37)
+# =============================================================================
+
+class Publication(Base):
+    """Научная публикация (статья, патент, тезисы)"""
+    __tablename__ = "publications"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(500), nullable=False)      # Полное название
+    authors = Column(String(500), nullable=False)    # "Иванов И.И., Петров П.П."
+    journal = Column(String(200))                    # Название журнала/конференции
+    year = Column(Integer)
+    volume = Column(String(50))                      # Том, выпуск
+    pages = Column(String(50))                       # Страницы
+    doi = Column(String(200))                        # DOI или ссылка
+    protocol_date = Column(Date)                     # Дата протокола НТС
+    publication_type = Column(String(50), default="article")  # article | patent | thesis
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # 🔹 СВЯЗИ
+    topics = relationship("ResearchTopic", secondary=publication_topics, back_populates="publications")
+    authors_list = relationship("User", secondary=publication_authors, back_populates="publications")
+    plans = relationship("PublicationPlan", back_populates="publication", cascade="all, delete-orphan")
+
+
+class PublicationPlan(Base):
+    """План оплаты публикации за конкретный месяц"""
+    __tablename__ = "publication_plans"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    publication_id = Column(Integer, ForeignKey("publications.id"), nullable=False)
+    employee_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # Кому платим
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    
+    is_paid = Column(Boolean, default=False)         # Уже оплачено?
+    payment_amount = Column(DECIMAL(10, 2))          # Сумма выплаты (опционально)
+    notes = Column(String(500))                      # Комментарий завлаба
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    publication = relationship("Publication", back_populates="plans")
+    employee = relationship("User")
+    
+    __table_args__ = (
+        UniqueConstraint('publication_id', 'employee_id', 'year', 'month', name='_plan_unique'),
+    )

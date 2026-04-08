@@ -12,13 +12,18 @@ from types import SimpleNamespace
 
 from .calculations import calculate_nir_score_raw, normalize_by_working_days, apply_additional_cap, calculate_final_total
 from .database import get_db
-from .models import User, ResearchTopic, MonthlyReport, ReportEntry, Attendance, WorkingDaysCalendar, ServiceActivity
+from .models import (
+    User, ResearchTopic, MonthlyReport, ReportEntry, 
+    Attendance, WorkingDaysCalendar, ServiceActivity,
+    Publication, PublicationPlan
+)
 from .schemas import (
     UserCreate, UserResponse, Token,
     TopicCreate, TopicResponse,
     MonthlyReportCreate, MonthlyReportResponse, ReportEntryCreate, ReportEntryResponse,
     AttendanceCreate, AttendanceResponse,
-    WorkingDaysCreate, WorkingDaysResponse
+    WorkingDaysCreate, WorkingDaysResponse,
+    PublicationResponse, PublicationPlanCreate, PublicationPlanResponse
 )
 from .auth import (
     get_password_hash, verify_password, create_access_token, get_current_user,
@@ -26,13 +31,12 @@ from .auth import (
 )
 
 # ================= ИНИЦИАЛИЗАЦИЯ =================
-app = FastAPI(title="Система расчёта СН", version="0.5.0")
+app = FastAPI(title="Система расчёта СН", version="0.6.1")
 templates = Jinja2Templates(directory="app/templates")
-# Раскомментируйте, когда добавите папку app/static/
 # app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
-# ================= AUTH & API (БЕЗ ИЗМЕНЕНИЙ) =================
+# ================= AUTH & API =================
 @app.post("/token", response_model=Token)
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -265,7 +269,96 @@ def set_working_days(
     return record
 
 
-# ================= WEB UI (НОВЫЕ ШАБЛОНЫ) =================
+# ================= ПУБЛИКАЦИИ — ЭНДПОИНТЫ =================
+@app.get("/api/employees/{employee_id}/publications", response_model=List[PublicationResponse])
+def get_employee_publications_json(
+    employee_id: int,
+    year: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = db.query(Publication).join(Publication.authors_list).filter(User.id == employee_id)
+    if year:
+        query = query.filter(Publication.year == year)
+    return query.all()
+
+@app.get("/api/employees/{employee_id}/publications/planned", response_model=List[PublicationPlanResponse])
+def get_planned_publications(
+    employee_id: int,
+    year: int = Query(...),
+    month: int = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    plans = db.query(PublicationPlan).join(Publication).join(User).filter(
+        PublicationPlan.employee_id == employee_id,
+        PublicationPlan.year == year,
+        PublicationPlan.month == month
+    ).all()
+    return plans
+
+@app.post("/api/publication-plans/", response_model=PublicationPlanResponse, status_code=201)
+def create_publication_plan(
+    plan: PublicationPlanCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != "admin":
+        employee = db.query(User).filter(User.id == plan.employee_id).first()
+        if employee and employee.department != current_user.department:
+            raise HTTPException(403, "Нет доступа к этому сотруднику")
+    exists = db.query(PublicationPlan).filter(
+        PublicationPlan.publication_id == plan.publication_id,
+        PublicationPlan.employee_id == plan.employee_id,
+        PublicationPlan.year == plan.year,
+        PublicationPlan.month == plan.month
+    ).first()
+    if exists:
+        raise HTTPException(400, "Эта публикация уже в плане за этот месяц")
+    new_plan = PublicationPlan(**plan.model_dump())
+    db.add(new_plan)
+    db.commit()
+    db.refresh(new_plan)
+    return new_plan
+
+@app.patch("/api/publication-plans/{plan_id}/toggle-paid")
+def toggle_plan_paid(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    plan = db.query(PublicationPlan).filter(PublicationPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(404, "План не найден")
+    if current_user.role != "admin":
+        employee = db.query(User).filter(User.id == plan.employee_id).first()
+        if employee and employee.department != current_user.department:
+            raise HTTPException(403, "Нет доступа")
+    plan.is_paid = not plan.is_paid
+    db.commit()
+    db.refresh(plan)
+    return plan
+
+@app.get("/web/employees/{employee_id}/publications", response_class=HTMLResponse)
+def get_employee_publications_html(
+    employee_id: int,
+    year: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    request: Request = None
+):
+    query = db.query(Publication).join(Publication.authors_list).filter(User.id == employee_id)
+    if year:
+        query = query.filter(Publication.year == year)
+    publications = query.all()
+    return templates.TemplateResponse("partials/pub_list.html", {
+        "request": request,
+        "publications": publications,
+        "current_year": year or datetime.now().year,
+        "current_month": datetime.now().month,
+    })
+
+
+# ================= WEB UI =================
 @app.get("/", response_class=HTMLResponse)
 def web_index(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("index.html", {
@@ -280,11 +373,11 @@ def web_index(request: Request, db: Session = Depends(get_db)):
 @app.get("/topics", response_class=HTMLResponse)
 def web_topics(request: Request, db: Session = Depends(get_db)):
     topics = db.query(ResearchTopic).order_by(ResearchTopic.id.desc()).all()
-    users = db.query(User).order_by(User.full_name).all()  # 🔹 Нужно для выпадающих списков
+    users = db.query(User).order_by(User.full_name).all()
     return templates.TemplateResponse("topics.html", {
         "request": request,
         "topics": topics,
-        "users": users,  # 🔹 Передаём в шаблон
+        "users": users,
         "current_year": datetime.now().year,
         "current_month": datetime.now().month,
     })
@@ -301,11 +394,10 @@ async def web_topics_post(
     year: int = Form(...),
     month: int = Form(...),
     department: str = Form(...),
-    executor_ids: List[int] = Form(default_factory=list),  # 🔹 Для множественного выбора
+    executor_ids: List[int] = Form(default_factory=list),
     db: Session = Depends(get_db),
     response: Response = None
 ):
-    # 1. Создаём объект темы
     new_topic = ResearchTopic(
         title=title, code=code,
         period_year=year, period_month=month,
@@ -316,14 +408,10 @@ async def web_topics_post(
         date_end=date_end
     )
     db.add(new_topic)
-    db.flush()  # Получаем new_topic.id до фиксации транзакции
-
-    # 2. Привязываем исполнителей (Many-to-Many)
+    db.flush()
     if executor_ids:
         executors = db.query(User).filter(User.id.in_(executor_ids)).all()
         new_topic.executors = executors
-
-    # 3. Фиксируем всё одной транзакцией
     db.commit()
     response.headers["X-Toast-Success"] = "Тема успешно добавлена"
     return RedirectResponse(url="/topics", status_code=303)
@@ -360,8 +448,6 @@ async def web_calendar_post(
 def web_attendance(request: Request, db: Session = Depends(get_db)):
     records_db = db.query(Attendance).order_by(Attendance.year.desc(), Attendance.month.desc()).all()
     employees = db.query(User).order_by(User.full_name).all()
-    
-    # Готовим данные под шаблон (расчёт коэффициента на лету)
     records = []
     for rec in records_db:
         norm = db.query(WorkingDaysCalendar).filter_by(year=rec.year, month=rec.month).first()
@@ -373,7 +459,6 @@ def web_attendance(request: Request, db: Session = Depends(get_db)):
             days_worked=rec.working_days,
             coefficient=coeff
         ))
-        
     years = sorted(set(r.year for r in records), reverse=True)
     return templates.TemplateResponse("attendance.html", {
         "request": request,
@@ -408,8 +493,6 @@ def web_reports(request: Request, db: Session = Depends(get_db)):
     reports_db = db.query(MonthlyReport).options(joinedload(MonthlyReport.entries)).order_by(MonthlyReport.id.desc()).all()
     employees = db.query(User).order_by(User.full_name).all()
     topics = db.query(ResearchTopic).all()
-    
-    # Адаптация под шаблон
     reports = []
     for r in reports_db:
         head = db.query(User).filter_by(id=r.lab_head_id).first()
@@ -418,11 +501,10 @@ def web_reports(request: Request, db: Session = Depends(get_db)):
             head_of_lab=head.full_name if head else "Не назначен",
             month=r.month,
             year=r.year,
-            total_fund=None, # Заглушка, можно рассчитать позже
+            total_fund=None,
             status=r.status,
             entries=r.entries
         ))
-        
     return templates.TemplateResponse("reports.html", {
         "request": request,
         "reports": reports,

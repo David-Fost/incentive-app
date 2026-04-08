@@ -147,3 +147,43 @@ class MonthlyReportResponse(BaseModel):
     status: str
     entries: List[ReportEntryResponse] = []
     model_config = ConfigDict(from_attributes=True)
+
+# =============================================================================
+# 🔹 СХЕМЫ ДЛЯ ПУБЛИКАЦИЙ
+# =============================================================================
+class PublicationCreate(BaseModel):
+    title: str
+    authors: str
+    journal: Optional[str] = None
+    year: Optional[int] = None
+    volume: Optional[str] = None
+    pages: Optional[str] = None
+    doi: Optional[str] = None
+    protocol_date: Optional[date] = None
+    publication_type: str = "article"
+    author_ids: List[int] = []
+    topic_ids: List[int] = []
+
+class PublicationResponse(PublicationCreate):
+    id: int
+    is_active: bool
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PublicationPlanCreate(BaseModel):
+    publication_id: int
+    employee_id: int
+    year: int
+    month: int
+    payment_amount: Optional[float] = None
+    notes: Optional[str] = None
+
+class PublicationPlanResponse(PublicationPlanCreate):
+    id: int
+    is_paid: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    publication: Optional[PublicationResponse] = None
+    employee_name: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
